@@ -1,3 +1,4 @@
 #!/bin/bash
 
-cargo run --release -- -p output test.bin
+cd afs_util
+cargo run --release -- -p output ../test.bin

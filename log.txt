@@ -1,4 +1,4 @@
-This document contains all my findings and how they are found about pzz files used in GVSGNP (NPJH50107).
+This document contains all my findings and how they are found about pzz files used in GVGNP (NPJH50107).
 I may not be able to successfully reverse engineer the whole thing but I hope this document may be useful for those trying to reverse engineer pzz file structure used in this game or even other Capcom games.
 
 I don't know how to extract files in a RAM dump, so I will be mainly analysing the game's executable. If someone knows how to extract files, please open an issue to teach me.
@@ -10,7 +10,7 @@ Goals
 
 The final goal is to modify files stored inside plxx.pzz, which is stored in Z_DATA.BIN, which happens to be and AFS archive
 There is a github repo pzzcompressor_jojo that unpack and decompresses pzz files used in a PS2 JoJo game developed by Capcom.
-The pzz file format is reused in GVSGNP with slight modifications:
+The pzz file format is reused in GVGNP with slight modifications:
     compression flag is 0x40000000 not 0x80000000
     file size is multiplied by 0x80 not 0x800.
     The compression algorithm used in each file is also different from that used in the JoJo game (because the python script cannot decompress the files)
@@ -176,7 +176,7 @@ Algorithm analysis
 Unlzx_table_three (32-bit, little endian) is recognised by retdec in this function.
 There is also a table in the global scope which unlzx_table_three pattern is detected by retdec.
 The compression algorithm used on compressed files in pzz is probably from the LZ family. I really hoped that I can use unlzx program directly to decompress, but obvious the header "LZX" does not exist.
-I also found the string "ZLIB" in the executable ocurring more than once. Those what those strings mean will be further investigated later.
+I also found the string "ZLIB" in the executable ocurring more than once. What those strings mean will be further investigated later.
 
 When I blindly modify data, the program is (probably) stuck in an infinite loop in `unlzx_table_three()`:
     *-- 0x8863318 <-* 

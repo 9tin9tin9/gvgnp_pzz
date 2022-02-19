@@ -1,3 +1,5 @@
 #!/bin/bash
 
-cargo run --release -- -e Z_DATA.BIN output
+cd afs_util
+mkdir output
+cargo run --release -- -e ../Z_DATA.BIN output

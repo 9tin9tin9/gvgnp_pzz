@@ -4,4 +4,4 @@ afs_util cannot replace file names with the attributes in AFS archive so attribu
 However, if you are to extract files only, it is recommend to use the python package afs-extractor.
 Hope the package can be upgraded to support packing AFS archives too (I know little about python)
 
-All tools are not well
+All tools are not designed to be easy to use, yet.

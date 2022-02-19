@@ -1,0 +1,189 @@
+This document contains all my findings and how they are found about pzz files used in GVSGNP (NPJH50107).
+I may not be able to successfully reverse engineer the whole thing but I hope this document may be useful for those trying to reverse engineer pzz file structure used in this game or even other Capcom games.
+
+I don't know how to extract files in a RAM dump, so I will be mainly analysing the game's executable. If someone knows how to extract files, please open an issue to teach me.
+
+
+#####
+Goals
+#####
+
+The final goal is to modify files stored inside plxx.pzz, which is stored in Z_DATA.BIN, which happens to be and AFS archive
+There is a github repo pzzcompressor_jojo that unpack and decompresses pzz files used in a PS2 JoJo game developed by Capcom.
+The pzz file format is reused in GVSGNP with slight modifications:
+    compression flag is 0x40000000 not 0x80000000
+    file size is multiplied by 0x80 not 0x800.
+    The compression algorithm used in each file is also different from that used in the JoJo game (because the python script cannot decompress the files)
+So the file format of pzz becomes:
+    4 bytes number for number of files
+    The next (file count) 4 byte numbers are file sizes with compression flag
+        0xaabbbbbb
+        aa: compression flag, 0x40 or 0x00
+        bbbbbb: file size, to be multiplied by 0x80
+    Zero paddings until offset 0x800, where the first file starts
+    File contents
+    Last 16 bytes of data with unknown meaning
+        Note that the last 16 bytes data does not appear in the arcade version of the game.
+        I suspect that those bytes are checksum.
+
+Individual files are xor-ed with unique 4 byte numbers. I don't know how the game figures out which magic number to use. But as we know there are zero paddings before the first file starts, we can use that as the magic number. I assume there aren't much files inside each pzz files, so taking the 4 bytes at offset 0x7FC should be save.
+Note that the last 16 bytes unknown data aren't xor-ed by the game, after examining the RAM dump.
+Quite interesting that the last file in plxx.pzz files are not compressed. Let's name that uncompressed file LAST.BIN
+
+The subgoals currently are:
+    1. Figure out the compression algorithm
+    2. Figure out what does those 16 bytes mean
+
+
+#####################
+Compression algorithm
+#####################
+
+Those compressed files seems to have 10 bytes header followed by file contents.
+Neither ZLIB nor GZIP magic number exist in the header
+
+After some research, I suspect that the algorithm used is from LZ family becuase many other games used LZ family algorithm.
+Most of them seemed to use LZSS.
+
+I tried to obtain the decompressed files from the RAM dump. Mac ppsspp does not have memory viewer and the websocket debugger currently does not have memory viewer. I have zero experience in using Cheat Engine. So I asked Shorn_Hub to help dump the files for me, but then he dumped the whole RAM for me.
+Despite how I felt at that time, I was suprised to see that LAST.BIN was divided and moved to different places in the RAM. This increased the difficultly of locating other decompressed files in the RAM.
+
+The next thing to try is to compare the files in the original arcade version of the game. Shorn_Hub uploaded pl00.pzz(arcade version) on a forum when asking for help. Hope there are identical files in both archives. 
+
+
+############################
+Meaning of the last 16 bytes
+############################
+
+I found the string "Incorrect data check" in RAM dump. I guess that means checksum does not match or similar. Therefore I suspect those 16 bytes are checksum
+I tried using MD2, MD4 and MD5 on both xor-ed and not xor-ed version of the file(with and without the 16 bytes), but the hash values does not match the 16 bytes data.
+
+I decided to use retdec to reverse engineer the executable, search for the string and see if there is the checksum calculating function nearby.
+And it turns out, the string is used in a giant function(Address range: 0x8864bc4 - 0x8865160) with a bunch of bitwise operation and pointer arithmetics.
+The function also contains other error messages, with the most interesting one being "incorrect header check". It seems like the function also checks for header validity.
+
+
+##########################################################
+Validation function (Address range: 0x8864bc4 - 0x8865160)
+##########################################################
+
+The function declaration is:
+`int32_t function_8864bc4(int32_t* a1, int32_t a2);`
+
+Let's rename the functino to `validation`, and now the declaration becomes:
+`int32_t validation(int32_t* a1, int32_t a2);`
+
+**********************
+Function call analysis
+**********************
+
+The function is being called when:
+    1. the game just boots (1 call)
+    2. after `now loading` word first appears (10 calls)
+    3. after save data is loaded (3 calls)
+    4. after opening movie is played (3 calls)
+    5. after entering unit selection screen in versus mode (4 calls)
+    6. right after pressing 'start' after selecting stage (38 calls) (RX-78-2 for all units, stage: side 7, bgm: オリジナル３)
+
+Now try modifying 1 byte in the last file in pl00.pzz (RX-78-2).
+The game does not proceed to 22th call after the 21th call in step 6.
+After 21th call (function call graph:
+       |
+       *-> function_8862c38
+             |
+             *-> function_8862864
+                   |
+                   V
+                 function_8862590
+                   |
+                   *-> function_8862630
+                         |
+                         *-> function_8862568
+                               |
+                         *-----*
+                         |
+                   *-----*
+                   |
+             *-----*
+             |
+        (loop: going to back 0x08863318 through:
+            0x088632C4,
+            0x0886333C,
+            0x088632C4,
+            0x0886333C,
+            0x088632C4,
+            0x0886333C,)
+            |
+            v
+           ???
+
+The first function call after 21th call triggers when v20 == 7
+As noted by retdec, cryptographic pattern: unlzx_table_three(32-bit, little endian) is recognised in `function_8862c38`
+Lets rename `function_8862c38` to `unlzx_table_three`
+
+The return value of `unlzx_table_three` is checked in a swich case:
+    case -3:
+        **v3 = 13;         | what are the meaning
+        *(*v3 + 3) = 0;    | of these assignments?
+        v10 = -3;          | <-- v17 = v10 at start of while(true)
+        goto start of while(true)
+    case 0:
+        return result;
+    case 1:
+        if (*(v27+12) == 0) {
+            potentially returns
+        }else{
+            goto start of while(true)
+        }
+    default:
+        return result2;
+
+******************
+Algorithm analysis
+******************
+
+The `a1` should be a pointer pointing to the data to validate.
+The meaning of `a2` is unknown. However, it is used to initialise `int32_t v5`:
+    `int32_t v5 = a2 == 4 ? -5 : 0;`
+`v5` is further assigned to :
+    `v10 = -5`, `v11`, `v12`, `v13`, `v14`, `v16`,
+    `result`, `result4`, `result5`, `result6`
+`v10` is assigned to `v17` at the start of while(true) loop.
+
+
+`v3` seems to be a pointer to pointer: `int32_t**`
+
+
+#####################################################################
+The unlzx_table_three function (Address range: 0x8862c38 - 0x8863a50)
+#####################################################################
+
+The function declaration is:
+`int32_t function_8862c38(int32_t a1, int32_t a2, int32_t a3);`
+
+Lets rename the function to `unlzx_table_three`, and now the declaration becomes:
+`int32_t unlzx_table_three(int32_t a1, int32_t a2, int32_t a3);`
+
+But since `a1` and `a2` are casted to `int32_t*` when they were used to initialise `v1` and `v3`, obviously they are pointers
+
+So the function declaration is actually:
+`int32_t unlzx_table_three(int32_t* a1, int32_t* a2, int32_t a3);`
+
+******************
+Algorithm analysis
+******************
+
+Unlzx_table_three (32-bit, little endian) is recognised by retdec in this function.
+There is also a table in the global scope which unlzx_table_three pattern is detected by retdec.
+The compression algorithm used on compressed files in pzz is probably from the LZ family. I really hoped that I can use unlzx program directly to decompress, but obvious the header "LZX" does not exist.
+I also found the string "ZLIB" in the executable ocurring more than once. Those what those strings mean will be further investigated later.
+
+When I blindly modify data, the program is (probably) stuck in an infinite loop in `unlzx_table_three()`:
+    *-- 0x8863318 <-* 
+    |   0x88632C4   |
+    |   0x886333C   |
+    v   0x88632C4   ^
+    |   0x886333C   |
+    |   0x88632C4   |
+    *-> 0x886333C --*
+The infinite loop should be the while loop between line 103642 and line 103712.

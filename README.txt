@@ -5,3 +5,5 @@ However, if you are to extract files only, it is recommend to use the python pac
 Hope the package can be upgraded to support packing AFS archives too (I know little about python)
 
 All tools are not designed to be easy to use, yet.
+
+I may not frequently work on this project becuase I am quite busy recently. I also find it difficult to analyse functions without access to the ppsspp memory. I need to learn using Cheat Engine.

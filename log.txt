@@ -87,40 +87,40 @@ The function is being called when:
 
 Now try modifying 1 byte in the last file in pl00.pzz (RX-78-2).
 The game does not proceed to 22th call after the 21th call in step 6.
-After 21th call (function call graph:
-       |
-       *-> function_8862c38
-             |
-             *-> function_8862864
-                   |
-                   V
-                 function_8862590
-                   |
-                   *-> function_8862630
-                         |
-                         *-> function_8862568
-                               |
-                         *-----*
-                         |
-                   *-----*
-                   |
-             *-----*
-             |
-        (loop: going to back 0x08863318 through:
-            0x088632C4,
-            0x0886333C,
-            0x088632C4,
-            0x0886333C,
-            0x088632C4,
-            0x0886333C,)
-            |
-            v
-           ???
 
 The first function call after 21th call triggers when v20 == 7
 As noted by retdec, cryptographic pattern: unlzx_table_three(32-bit, little endian) is recognised in `function_8862c38`
-Lets rename `function_8862c38` to `unlzx_table_three`
 
+`validation()` is called by `function_8862890()`,
+`function_8862890()` is called by `function_88868c4()`
+    which calls `sceKernelDcacheWritebackInvalidateRange`.
+        From PSPSDK, the sys call write back and invalidate a range of addresses in the data cache.
+        I don't really understand what does that do.
+`function_88868c4()` is called by `function_8887af8()`
+`function_8887af8()` is called by `function_8887648()`
+Then the game seems to get stuck in the loop. Can't even step out of it.
+
+`function_88bd728()` is called during the loop. I saw a lot of xor instructions. What does that do?
+The function is called by `function_88bd520()`. `memcmp()` is called after that.
+
+******************
+Algorithm analysis
+******************
+
+The `a1` should be a pointer pointing to the data to validate.
+The meaning of `a2` is unknown. However, it is used to initialise `int32_t v5`:
+    `int32_t v5 = a2 == 4 ? -5 : 0;`
+`v5` is further assigned to :
+    `v10 = -5`, `v11`, `v12`, `v13`, `v14`, `v16`,
+    `result`, `result4`, `result5`, `result6`
+`v10` is assigned to `v17` at the start of while(true) loop.
+
+
+`v3` seems to be a pointer to pointer: `int32_t**`
+
+...
+
+Lets rename `function_8862c38` to `unlzx_table_three`
 The return value of `unlzx_table_three` is checked in a swich case:
     case -3:
         **v3 = 13;         | what are the meaning
@@ -137,21 +137,6 @@ The return value of `unlzx_table_three` is checked in a swich case:
         }
     default:
         return result2;
-
-******************
-Algorithm analysis
-******************
-
-The `a1` should be a pointer pointing to the data to validate.
-The meaning of `a2` is unknown. However, it is used to initialise `int32_t v5`:
-    `int32_t v5 = a2 == 4 ? -5 : 0;`
-`v5` is further assigned to :
-    `v10 = -5`, `v11`, `v12`, `v13`, `v14`, `v16`,
-    `result`, `result4`, `result5`, `result6`
-`v10` is assigned to `v17` at the start of while(true) loop.
-
-
-`v3` seems to be a pointer to pointer: `int32_t**`
 
 
 #####################################################################
@@ -178,12 +163,13 @@ There is also a table in the global scope which unlzx_table_three pattern is det
 The compression algorithm used on compressed files in pzz is probably from the LZ family. I really hoped that I can use unlzx program directly to decompress, but obvious the header "LZX" does not exist.
 I also found the string "ZLIB" in the executable ocurring more than once. What those strings mean will be further investigated later.
 
-When I blindly modify data, the program is (probably) stuck in an infinite loop in `unlzx_table_three()`:
-    *-- 0x8863318 <-* 
-    |   0x88632C4   |
-    |   0x886333C   |
-    v   0x88632C4   ^
-    |   0x886333C   |
-    |   0x88632C4   |
-    *-> 0x886333C --*
-The infinite loop should be the while loop between line 103642 and line 103712.
+Check v0 != 0 at 8863388
+    true: goto 88632C4
+    false: Check s0 == 0 88632CC
+        true: 88632DC
+        false: goto 8863318
+Check at == 0 at 88632C4
+    true: goto 886333C
+
+Check v0 == 0 at 88633D4
+    tru: goto 88633A8
